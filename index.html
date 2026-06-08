@@ -280,6 +280,44 @@
     .key.absent  { background:#cbcbd8; color:#8888a8; border-color:#cbcbd8; box-shadow:0 2px 0 #b8b8cc; }
     .key.busy    { opacity:0.5; cursor:wait; }
 
+    /* ── Mobile native-keyboard controls ── */
+    .mob-input {
+      position: fixed; top: -200px; left: -200px;
+      width: 1px; height: 1px; opacity: 0;
+      pointer-events: none; border: none; outline: none;
+      font-size: 16px; /* prevents iOS auto-zoom on focus */
+    }
+    .mob-ctrls {
+      display: flex; align-items: stretch; gap: 10px;
+      width: 100%; margin-bottom: 14px;
+    }
+    .mob-tap {
+      flex: 1; height: clamp(50px,13vw,58px);
+      border-radius: 12px; cursor: pointer;
+      font-family: 'Outfit', sans-serif;
+      font-size: clamp(13px,3.5vw,15px); font-weight: 700;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      transition: all 0.14s;
+      border: 2px dashed var(--border2);
+      background: var(--bg); color: var(--muted);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mob-tap.focused { border-color:var(--accent); background:var(--accent-lt); color:var(--accent); border-style:solid; }
+    .mob-tap:active  { transform: scale(0.97); }
+    .mob-act {
+      width: clamp(54px,14vw,66px); height: clamp(50px,13vw,58px);
+      border-radius: 12px; cursor: pointer;
+      font-family: 'Outfit', sans-serif;
+      font-size: clamp(20px,5.5vw,26px); font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.12s; flex-shrink: 0; border: none;
+      -webkit-tap-highlight-color: transparent; user-select: none;
+    }
+    .mob-act:active  { transform: scale(0.88); }
+    .mob-del    { background:var(--key-bg); color:var(--key-txt); box-shadow:0 3px 0 var(--border2); }
+    .mob-submit { background:var(--accent); color:#fff; box-shadow:0 3px 0 #5b21b6; }
+    .mob-submit.busy { opacity:0.5; cursor:wait; }
+
     /* ── Shared overlay base ── */
     .overlay {
       position:fixed; inset:0; background:rgba(8,8,20,0.72);
@@ -723,19 +761,29 @@
     const [showScratch, setShowScratch]= useState(false);
     const [showRules,   setShowRules]  = useState(false);
 
-    const gsRef       = useRef(gs);
-    const shownScrRef = useRef(false);
-    const validRef    = useRef(false);
+    const gsRef        = useRef(gs);
+    const shownScrRef  = useRef(false);
+    const validRef     = useRef(false);
+    const mobileInputRef = useRef(null);
+    const handleKeyRef   = useRef(null); // always-current ref to handleKey
+
+    const [inputFocused, setInputFocused] = useState(false);
 
     useEffect(() => { gsRef.current = gs; }, [gs]);
     useEffect(() => { saveGame(gs); }, [gs]);
 
-    // Responsive tile size
-    const [contW, setContW] = useState(() => Math.min(window.innerWidth,500)-32);
+    // Responsive sizing + mobile detection
+    const [viewport, setViewport] = useState(() => ({
+      contW: Math.min(window.innerWidth,500)-32,
+      screenW: window.innerWidth,
+    }));
     useEffect(() => {
-      const h = () => setContW(Math.min(window.innerWidth,500)-32);
+      const h = () => setViewport({ contW:Math.min(window.innerWidth,500)-32, screenW:window.innerWidth });
       window.addEventListener('resize',h); return ()=>window.removeEventListener('resize',h);
     },[]);
+    const { contW, screenW } = viewport;
+    // Mobile = touch device OR narrow viewport (< 500px)
+    const isMobile = navigator.maxTouchPoints > 0 || screenW < 500;
 
     const allWon = isAllWon(gs);
     const lvl    = gs.currentLevel;
@@ -852,6 +900,11 @@
       }
     },[busy,isRO,data.input,data.guesses.length,lvl,wl,tgt]);
 
+    // Keep handleKeyRef always pointing to the latest handleKey
+    // (needed by mobile handlers which can't re-bind on every render)
+    useEffect(() => { handleKeyRef.current = handleKey; }, [handleKey]);
+
+    // Desktop physical keyboard listener
     useEffect(()=>{
       const h=(e)=>{
         if(e.ctrlKey||e.altKey||e.metaKey) return;
@@ -862,6 +915,27 @@
       };
       window.addEventListener('keydown',h); return()=>window.removeEventListener('keydown',h);
     },[handleKey]);
+
+    // Mobile: native keyboard input handler
+    // Each character typed → process it → immediately clear the hidden input
+    const handleMobileChange = useCallback((e) => {
+      const val = e.target.value;
+      for (const ch of val.toUpperCase()) {
+        if (/^[A-Z]$/.test(ch)) handleKeyRef.current?.(ch);
+      }
+      e.target.value = ''; // keep hidden input always empty
+    }, []);
+
+    // Mobile: catch Enter and Backspace from native keyboard
+    const handleMobileKeyDown = useCallback((e) => {
+      if (e.key === 'Enter')     { e.preventDefault(); handleKeyRef.current?.('ENTER'); }
+      if (e.key === 'Backspace') { e.preventDefault(); handleKeyRef.current?.('BACK');  }
+    }, []);
+
+    const focusMobileInput = () => {
+      mobileInputRef.current?.focus();
+      setInputFocused(true);
+    };
 
     // ── Board ────────────────────────────────────────────────────────────────
     const renderBoard=()=>{
@@ -1015,8 +1089,42 @@
           <button className="next-btn" onClick={()=>setLevel(lvl+1)}>Level {lvl+1} →</button>
         )}
 
-        {/* ── Keyboard ── */}
-        {!isRO&&!allWon&&(
+        {/* ── Input area: native keyboard on mobile, QWERTY on desktop ── */}
+        {!isRO&&!allWon&&(isMobile ? (
+          <>
+            {/* Hidden input — offscreen, captures native keyboard events */}
+            <input
+              ref={mobileInputRef}
+              className="mob-input"
+              type="text"
+              inputMode="text"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck="false"
+              enterKeyHint="done"
+              onChange={handleMobileChange}
+              onKeyDown={handleMobileKeyDown}
+              onFocus={()=>setInputFocused(true)}
+              onBlur={()=>setInputFocused(false)}
+            />
+            {/* Three-button mobile control strip */}
+            <div className="mob-ctrls">
+              <button className="mob-act mob-del"
+                onPointerDown={e=>{e.preventDefault(); handleKeyRef.current?.('BACK');}}>
+                ⌫
+              </button>
+              <button className={`mob-tap${inputFocused?' focused':''}`}
+                onClick={focusMobileInput}>
+                {inputFocused ? '⌨️ Typing…' : '⌨️ Tap to type'}
+              </button>
+              <button className={`mob-act mob-submit${validating?' busy':''}`}
+                onPointerDown={e=>{e.preventDefault(); handleKeyRef.current?.('ENTER');}}>
+                {validating ? '…' : '↵'}
+              </button>
+            </div>
+          </>
+        ) : (
           <div className="keyboard">
             {KB_ROWS.map((row,ri)=>(
               <div key={ri} className="key-row">
@@ -1034,7 +1142,7 @@
               </div>
             ))}
           </div>
-        )}
+        ))}
 
         {/* ── Modals ── */}
         {showRules   && <RulesModal   onClose={()=>setShowRules(false)}/>}
