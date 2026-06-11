@@ -281,6 +281,7 @@
     .key.busy    { opacity:0.5; cursor:wait; }
 
 
+
     /* ── Shared overlay base ── */
     .overlay {
       position:fixed; inset:0; background:rgba(8,8,20,0.72);
@@ -380,39 +381,39 @@
 
     /* ── AI Assist ── */
     .ai-assist-wrap {
-      display:flex; flex-direction:column; align-items:center;
-      width:100%; gap:10px; margin-bottom:12px;
+      width:100%; display:flex; flex-direction:column;
+      align-items:center; gap:10px; margin-bottom:12px;
     }
     .ai-btn {
       display:flex; align-items:center; gap:8px;
       padding:9px 20px;
       background:linear-gradient(135deg,#6d28d9,#a855f7);
       color:#fff; border:none; border-radius:22px;
-      font-family:'Outfit',sans-serif; font-size:clamp(12px,3vw,13px); font-weight:700;
+      font-family:'Outfit',sans-serif;
+      font-size:clamp(12px,3vw,13px); font-weight:700;
       cursor:pointer; transition:all 0.18s;
       box-shadow:0 3px 14px rgba(109,40,217,0.3);
       -webkit-tap-highlight-color:transparent;
     }
     .ai-btn:hover { transform:translateY(-1px); box-shadow:0 5px 18px rgba(109,40,217,0.4); }
     .ai-btn:disabled { opacity:0.65; cursor:wait; transform:none; }
-    .ai-btn-badge {
+    .ai-badge {
       font-size:10px; font-weight:700;
       background:rgba(255,255,255,0.22);
-      padding:2px 7px; border-radius:10px; letter-spacing:0.2px;
+      padding:2px 7px; border-radius:10px;
     }
-
     .hint-card {
       width:100%; position:relative;
       background:linear-gradient(135deg,#f5f3ff,#ede9fe);
-      border:1.5px solid rgba(109,40,217,0.2);
+      border:1.5px solid rgba(109,40,217,0.22);
       border-radius:14px; padding:13px 38px 13px 16px;
     }
-    .hint-label {
+    .hint-lbl {
       font-family:'Outfit',sans-serif; font-weight:700;
       font-size:10px; color:var(--accent);
       text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;
     }
-    .hint-text {
+    .hint-txt {
       font-family:'Manrope',sans-serif;
       font-size:clamp(12px,3vw,13px); color:#3b1f7a; line-height:1.55;
     }
@@ -425,8 +426,6 @@
       transition:background 0.15s;
     }
     .hint-x:hover { background:rgba(109,40,217,0.25); }
-
-
 
     @media (max-width:360px) {
       .app { padding:0 10px 20px; }
@@ -770,6 +769,40 @@
     );
   }
 
+
+  // ── AI hint helper — lives outside App to avoid closure issues ──────────
+  // Calls the Vercel backend which holds the API key server-side.
+  const getHintFromAI = async (word, wordLen, guesses, colors, hintNum) => {
+    const knownCorrect = Array(wordLen).fill('_');
+    const present = new Set();
+    const absent  = new Set();
+    guesses.forEach((g, ri) => {
+      g.split('').forEach((l, ci) => {
+        const col = colors[ri][ci];
+        if (col === 'correct') knownCorrect[ci] = l;
+        else if (col === 'present') present.add(l);
+        else if (col === 'absent')  absent.add(l);
+      });
+    });
+    const style = hintNum === 1
+      ? 'Give a general clue about what this word means or how it is used. Be helpful but not too obvious.'
+      : 'Give a more specific clue. You may mention the first letter, a synonym, or give a direct definition.';
+    const prompt =
+      'WordClimb hint. Word: ' + word + '. Length: ' + wordLen + ' letters. ' + style +
+      ' Confirmed positions: ' + knownCorrect.join('') +
+      '. Letters in word (wrong position): ' + ([...present].join('') || 'none') +
+      '. Letters not in word: ' + ([...absent].join('') || 'none') +
+      '. IMPORTANT: Do NOT reveal the word. Keep it to 1-2 sentences, max 30 words. Reply with only the hint text.';
+    const res = await fetch('https://ai-backend-hazel-ten.vercel.app/api/word-hint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    });
+    if (!res.ok) throw new Error('Server error ' + res.status);
+    const data = await res.json();
+    return (data.hint || data.text || data.result || '').trim() || 'No hint available.';
+  };
+
   // ── Tile ──────────────────────────────────────────────────────────────────
   function Tile({ letter, color, ts, cls='', style={}, isCur }) {
     const filled = (letter&&!color)?'filled':'';
@@ -861,57 +894,17 @@
     };
 
 
-    // ── AI hint via Vercel backend (API key lives securely server-side) ────
-    const callGemini = async (prompt) => {
-      const res = await fetch('https://ai-backend-hazel-ten.vercel.app/api/word-hint', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      });
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
-      const data = await res.json();
-      // Handle whichever shape the Vercel function returns
-      return (data.hint || data.text || data.result || data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim() || null;
-    };
-
     const handleAiAssist = async () => {
       const hintsUsed = data.hintsUsed || 0;
       if (hintsUsed >= 2 || hintLoading) return;
-
-      // Build context from what the player already knows
-      const knownCorrect = Array(wl).fill('_');
-      const presentLetters = new Set();
-      const absentLetters = new Set();
-      data.guesses.forEach((g,ri) => {
-        g.split('').forEach((l,ci) => {
-          const c = data.colors[ri][ci];
-          if (c==='correct') knownCorrect[ci] = l;
-          else if (c==='present') presentLetters.add(l);
-          else if (c==='absent') absentLetters.add(l);
-        });
-      });
-
-      const hintStyle = hintsUsed === 0
-        ? 'Give a general clue about the meaning, usage, or category of this word. Be creative but do not make it too easy.'
-        : 'Give a more specific clue — this could reference the first letter, a rhyming word, a direct definition, or a famous example.';
-
-      const prompt = `You are an AI assistant for WordClimb, a word guessing game. The player is trying to guess a ${wl}-letter English word. ${hintStyle}
-
-The word is: ${tgt}
-Letters confirmed in correct positions: ${knownCorrect.join('')}
-Letters confirmed in word (wrong position): ${[...presentLetters].join('') || 'none'}
-Letters not in word: ${[...absentLetters].join('') || 'none'}
-
-Rules: Do NOT reveal the word. Keep your hint to 1-2 sentences, max 35 words. Reply with only the hint text.`;
-
       setHintLoading(true);
       try {
-        const hint = await callGemini(prompt);
+        const hint = await getHintFromAI(tgt, wl, data.guesses, data.colors, hintsUsed + 1);
         setGs(p => ({
           ...p,
           levels: { ...p.levels, [lvl]: {
             ...p.levels[lvl],
-            hintsUsed: (p.levels[lvl].hintsUsed||0) + 1,
+            hintsUsed: (p.levels[lvl].hintsUsed || 0) + 1,
             currentHint: hint
           }}
         }));
@@ -923,7 +916,7 @@ Rules: Do NOT reveal the word. Keep your hint to 1-2 sentences, max 35 words. Re
     };
 
     const dismissHint = () => {
-      setGs(p => ({ ...p, levels: { ...p.levels, [lvl]: { ...p.levels[lvl], currentHint:null } } }));
+      setGs(p => ({ ...p, levels: { ...p.levels, [lvl]: { ...p.levels[lvl], currentHint: null } } }));
     };
 
     // ── Key handler ─────────────────────────────────────────────────────────
@@ -1099,3 +1092,141 @@ Rules: Do NOT reveal the word. Keep your hint to 1-2 sentences, max 35 words. Re
             )}
           </div>
         </div>
+
+        {/* ── All-done banner ── */}
+        {allDone && (
+          <>
+            <div className="done-banner">
+              <div className="done-banner-title">
+                {allWon ? "🎉 Puzzle complete!" : "📋 Puzzle done!"}
+              </div>
+              <div className="done-banner-sub">
+                {allWon
+                  ? "You've climbed all 4 levels."
+                  : "You went through all 4 levels."}
+                {' '}New words at midnight UTC.<br/>Browse your results below.
+              </div>
+            </div>
+            <button className="reward-btn" onClick={()=>setShowScratch(true)}>
+              {allWon ? '🏆 View your reward' : '📬 See how you did'}
+            </button>
+          </>
+        )}
+
+        {/* ── Level tabs ── */}
+        <div className="level-tabs">
+          {LEVELS.map(l=>{
+            const ls=gs.levels[l],isAct=l===lvl;
+            const cls=['ltab',
+              isAct?'active':ls.status==='won'?'won':ls.status==='lost'?'lost':ls.status==='locked'?'locked':''
+            ].filter(Boolean).join(' ');
+            const icon=ls.status==='won'?'✓':ls.status==='lost'?'✗':ls.status==='locked'?'🔒':`L${l}`;
+            return(
+              <button key={l} className={cls} onClick={()=>setLevel(l)}>
+                {icon}<span className="ltab-sub">{LEVEL_LENS[l]} letters</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Status ── */}
+        <div className="status-row">
+          <div className="s-label">Level {lvl} · {wl}-letter word</div>
+          {data.status==='active'&&!allDone&&(
+            <div className="s-att">
+              {remaining}/{maxA} left
+              <div className="dots">
+                {Array.from({length:maxA}).map((_,i)=>(
+                  <div key={i} className={`dot${i>=remaining?' used':''}`}/>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Legend ── */}
+        <div className="legend">
+          <div className="leg-item"><div className="leg-dot" style={{background:'#16a34a'}}/>Correct spot</div>
+          <div className="leg-item"><div className="leg-dot" style={{background:'#ea580c'}}/>Wrong spot</div>
+          <div className="leg-item"><div className="leg-dot" style={{background:'var(--absent-bg)',border:'1px solid var(--border)'}}/>Not in word</div>
+        </div>
+
+        {/* ── Read-only banner (completed level, mid-game navigation) ── */}
+        {isRO&&!allDone&&(
+          <div className="ro-banner">
+            <span>👁 Level {lvl} {data.status==='won'?'won':'lost'} — view only</span>
+            {LEVELS.some(l=>gs.levels[l].status==='active')&&(
+              <button className="cont-btn" onClick={goActive}>Continue →</button>
+            )}
+          </div>
+        )}
+
+        {/* ── Toasts ── */}
+        {validating&&<div className="toast checking">Checking word…</div>}
+        {!validating&&toast&&<div className={`toast ${toast.type}`}>{toast.txt}</div>}
+        {!validating&&!toast&&data.message&&(
+          <div className={`toast ${data.message.type}`}>{data.message.text}</div>
+        )}
+
+        {/* ── Board ── */}
+        <div className="board">{renderBoard()}</div>
+
+        {/* ── Next Level / Continue button — shows on both win and loss ── */}
+        {(data.status==='won'||data.status==='lost')&&lvl<4&&!allDone&&gs.levels[lvl+1]?.status!=='locked'&&(
+          <button className="next-btn" onClick={()=>setLevel(lvl+1)}>
+            {data.status==='lost'?`Continue to Level ${lvl+1} →`:`Level ${lvl+1} →`}
+          </button>
+        )}
+
+        {/* ── AI Assist ── */}
+        {data.status==='active' && !allDone && data.guesses.length >= 2 && (data.hintsUsed||0) < 2 && (
+          <div className="ai-assist-wrap">
+            {data.currentHint && (
+              <div className="hint-card">
+                <div className="hint-lbl">✨ AI Assist</div>
+                <div className="hint-txt">{data.currentHint}</div>
+                <button className="hint-x" onClick={dismissHint}>✕</button>
+              </div>
+            )}
+            <button className="ai-btn" onClick={handleAiAssist} disabled={hintLoading}>
+              {hintLoading ? '✨ Getting hint...' : (
+                <>
+                  <span>✨ AI Assist</span>
+                  <span className="ai-badge">{2-(data.hintsUsed||0)} left</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* ── Keyboard — shown on all devices ── */}
+        {!isRO&&!allDone&&(
+          <div className="keyboard">
+            {KB_ROWS.map((row,ri)=>(
+              <div key={ri} className="key-row">
+                {row.map(k=>{
+                  const ks=k.length===1?keyState(k):null;
+                  const isEnt=k==='ENTER';
+                  return(
+                    <button key={k}
+                      className={['key',k.length>1?'wide':'',ks||'',(validating&&isEnt)?'busy':''].filter(Boolean).join(' ')}
+                      onClick={()=>handleKey(k)}>
+                      {k==='BACK'?'⌫':k==='ENTER'?(validating?'…':'↵'):k}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Modals ── */}
+        {showRules   && <RulesModal   onClose={()=>setShowRules(false)}/>}
+        {showScratch && <ScratchCard playCount={gs.playCount} onClose={()=>setShowScratch(false)}/>}
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
