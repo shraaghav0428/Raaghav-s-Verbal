@@ -790,8 +790,9 @@
       window.addEventListener('resize',h); return ()=>window.removeEventListener('resize',h);
     },[]);
     const { contW, screenW } = viewport;
-    // Mobile = touch device OR narrow viewport (< 500px)
-    const isMobile = navigator.maxTouchPoints > 0 || screenW < 500;
+    // Mobile = narrow viewport only. navigator.maxTouchPoints is unreliable
+    // (many Windows laptops report touch points on non-touch screens).
+    const isMobile = screenW < 500;
 
     const allWon  = isAllWon(gs);  // all 4 WON — used for reward check
     const allDone = isAllDone(gs); // all 4 DONE (won or lost) — locks puzzle
@@ -1194,4 +1195,3 @@
   ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
-</html>
