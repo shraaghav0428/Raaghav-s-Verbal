@@ -503,7 +503,12 @@
     levels:{ 1:blankLvl('active'), 2:blankLvl('locked'), 3:blankLvl('locked'), 4:blankLvl('locked') }
   });
 
-  const isAllWon = (gs) => LEVELS.every(l => gs?.levels?.[l]?.status === 'won');
+  const isAllWon  = (gs) => LEVELS.every(l => gs?.levels?.[l]?.status === 'won');
+  // Puzzle is "done" when every level is completed — won OR lost
+  const isAllDone = (gs) => LEVELS.every(l => {
+    const s = gs?.levels?.[l]?.status;
+    return s === 'won' || s === 'lost';
+  });
 
   /**
    * buildRestartState — smart restart that preserves won levels.
@@ -555,8 +560,8 @@
       const raw = localStorage.getItem(TODAY_KEY);
       if (raw) {
         const saved = JSON.parse(raw);
-        // All 4 levels won → puzzle complete, preserve forever until UTC midnight
-        if (isAllWon(saved)) return saved;
+        // All 4 levels completed (won or lost) → puzzle locked for the day
+        if (isAllDone(saved)) return saved;
         // New session (tab reopened) and puzzle not done → new attempt, keep won levels
         if (isNewSession) return buildRestartState(saved);
         // Same session, game in progress → restore exactly
@@ -788,7 +793,8 @@
     // Mobile = touch device OR narrow viewport (< 500px)
     const isMobile = navigator.maxTouchPoints > 0 || screenW < 500;
 
-    const allWon = isAllWon(gs);
+    const allWon  = isAllWon(gs);  // all 4 WON — used for reward check
+    const allDone = isAllDone(gs); // all 4 DONE (won or lost) — locks puzzle
     const lvl    = gs.currentLevel;
     const data   = gs.levels[lvl];
     const wl     = LEVEL_LENS[lvl];
@@ -798,7 +804,7 @@
     // Level is read-only if: the level itself is done, OR entire puzzle is won
     // A level with status 'active' is always playable (even if it's the current attempt after restart)
     const lvlDone = data.status==='won' || data.status==='lost';
-    const isRO    = lvlDone || allWon;
+    const isRO    = lvlDone || allDone;
 
     const busy = !!inflight;
     const ts   = Math.max(30, Math.min(58, Math.floor((contW-(wl-1)*5)/wl)));
@@ -817,7 +823,7 @@
     // Restart: smart — keeps won levels, resets from first non-won, bumps play count
     // Blocked if all levels are won (puzzle complete for today)
     const handleRestart = () => {
-      if (allWon) return;
+      if (allDone) return;
       shownScrRef.current=false; validRef.current=false;
       setGs(buildRestartState(gsRef.current));
       setInflight(null); setBouncing(null); setShaking(false);
@@ -877,7 +883,10 @@
               const lost=!won&&newG.length>=curWl;
               const status=won?'won':lost?'lost':'active';
               const message=(won||lost)?getMsg(newG.length,won,curTgt):null;
-              const upd={...p,levels:{...p.levels,[curLvl]:{...d,guesses:newG,colors:newC,input:'',status,message}}};
+              // Each failed level costs a turn — increment playCount on loss
+              const upd={...p,
+                playCount: p.playCount+(lost?1:0),
+                levels:{...p.levels,[curLvl]:{...d,guesses:newG,colors:newC,input:'',status,message}}};
               // Unlock next level on both win AND loss
               if(curLvl<4&&upd.levels[curLvl+1].status==='locked'&&(won||lost))
                 upd.levels[curLvl+1]={...upd.levels[curLvl+1],status:'active'};
@@ -894,10 +903,20 @@
             if(willWin){
               setBouncing({lvl:curLvl,rowIdx});
               setTimeout(()=>setBouncing(null),800);
-              // Scratch card: fire directly using gsRef (reliable, no stale closure)
-              if(curLvl===4&&!shownScrRef.current){
-                const prev3Won=[1,2,3].every(l=>gsRef.current?.levels?.[l]?.status==='won');
-                if(prev3Won){ shownScrRef.current=true; setTimeout(()=>setShowScratch(true),1400); }
+            }
+
+            // Scratch card: fires when all 4 levels are completed (won OR lost)
+            // Moved outside willWin so it also triggers when level 4 is lost
+            if(curLvl===4&&!shownScrRef.current){
+              const lvl4Done = willWin || (rowIdx+1>=curWl);
+              const prev3Done = [1,2,3].every(l=>{
+                const s=gsRef.current?.levels?.[l]?.status;
+                return s==='won'||s==='lost';
+              });
+              if(lvl4Done&&prev3Done){
+                shownScrRef.current=true;
+                // Extra delay on loss so player can read the revealed word first
+                setTimeout(()=>setShowScratch(true), willWin?1400:3400);
               }
             }
           }, curWl*160+600);
@@ -953,10 +972,10 @@
 
     // Auto-focus hidden input when active level changes on mobile → native keyboard appears
     useEffect(() => {
-      if (!isMobile || isRO || allWon) return;
+      if (!isMobile || isRO || allDone) return;
       const t = setTimeout(() => mobileInputRef.current?.focus(), 200);
       return () => clearTimeout(t);
-    }, [isMobile, lvl, isRO, allWon]);
+    }, [isMobile, lvl, isRO, allDone]);
 
     // ── Board ────────────────────────────────────────────────────────────────
     const renderBoard=()=>{
@@ -986,7 +1005,7 @@
       }
 
       const inp=d.input||'';
-      const showActive=!fl&&d.status==='active'&&!allWon;
+      const showActive=!fl&&d.status==='active'&&!allDone;
       if(showActive){
         rows.push(
           <div key="active" className={`tile-row${shaking?' shake':''}`}>
@@ -1025,24 +1044,28 @@
           </div>
           <div className="h-right">
             <button className="icon-btn" title="How to play" onClick={()=>setShowRules(true)}>?</button>
-            {!allWon && (
+            {!allDone && (
               <button className="restart-btn" onClick={handleRestart}>↺ Restart</button>
             )}
           </div>
         </div>
 
         {/* ── All-done banner ── */}
-        {allWon && (
+        {allDone && (
           <>
             <div className="done-banner">
-              <div className="done-banner-title">🎉 Today's puzzle complete!</div>
+              <div className="done-banner-title">
+                {allWon ? '🎉 Today's puzzle complete!' : '📋 Today's puzzle done!'}
+              </div>
               <div className="done-banner-sub">
-                You've climbed all 4 levels. New words at midnight UTC.<br/>
-                Browse your results below.
+                {allWon
+                  ? "You've climbed all 4 levels."
+                  : "You went through all 4 levels."}
+                {' '}New words at midnight UTC.<br/>Browse your results below.
               </div>
             </div>
             <button className="reward-btn" onClick={()=>setShowScratch(true)}>
-              🏆 View your reward
+              {allWon ? '🏆 View your reward' : '📬 See how you did'}
             </button>
           </>
         )}
@@ -1066,7 +1089,7 @@
         {/* ── Status ── */}
         <div className="status-row">
           <div className="s-label">Level {lvl} · {wl}-letter word</div>
-          {data.status==='active'&&!allWon&&(
+          {data.status==='active'&&!allDone&&(
             <div className="s-att">
               {remaining}/{maxA} left
               <div className="dots">
@@ -1086,7 +1109,7 @@
         </div>
 
         {/* ── Read-only banner (completed level, mid-game navigation) ── */}
-        {isRO&&!allWon&&(
+        {isRO&&!allDone&&(
           <div className="ro-banner">
             <span>👁 Level {lvl} {data.status==='won'?'won':'lost'} — view only</span>
             {LEVELS.some(l=>gs.levels[l].status==='active')&&(
@@ -1103,17 +1126,17 @@
         )}
 
         {/* ── Board ── */}
-        <div className="board" onClick={()=>{ if(isMobile&&!isRO&&!allWon) mobileInputRef.current?.focus(); }}>{renderBoard()}</div>
+        <div className="board" onClick={()=>{ if(isMobile&&!isRO&&!allDone) mobileInputRef.current?.focus(); }}>{renderBoard()}</div>
 
         {/* ── Next Level / Continue button — shows on both win and loss ── */}
-        {(data.status==='won'||data.status==='lost')&&lvl<4&&!allWon&&gs.levels[lvl+1]?.status!=='locked'&&(
+        {(data.status==='won'||data.status==='lost')&&lvl<4&&!allDone&&gs.levels[lvl+1]?.status!=='locked'&&(
           <button className="next-btn" onClick={()=>setLevel(lvl+1)}>
             {data.status==='lost'?`Continue to Level ${lvl+1} →`:`Level ${lvl+1} →`}
           </button>
         )}
 
         {/* ── Input area: native keyboard on mobile, QWERTY on desktop ── */}
-        {!isRO&&!allWon&&(isMobile ? (
+        {!isRO&&!allDone&&(isMobile ? (
           <>
             {/* Hidden input — offscreen, captures native keyboard events */}
             <input
