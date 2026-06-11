@@ -280,6 +280,32 @@
     .key.absent  { background:#cbcbd8; color:#8888a8; border-color:#cbcbd8; box-shadow:0 2px 0 #b8b8cc; }
     .key.busy    { opacity:0.5; cursor:wait; }
 
+    /* ── Mobile native-keyboard controls ── */
+    .mob-input {
+      position: fixed; top: -200px; left: -200px;
+      width: 1px; height: 1px; opacity: 0;
+      pointer-events: none; border: none; outline: none;
+      font-size: 16px; /* prevents iOS auto-zoom on focus */
+    }
+    .mob-ctrls {
+      display: flex; align-items: stretch; gap: 10px;
+      width: 100%; margin-bottom: 14px;
+    }
+
+    .mob-act {
+      width: clamp(54px,14vw,66px); height: clamp(50px,13vw,58px);
+      border-radius: 12px; cursor: pointer;
+      font-family: 'Outfit', sans-serif;
+      font-size: clamp(20px,5.5vw,26px); font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.12s; flex-shrink: 0; border: none;
+      -webkit-tap-highlight-color: transparent; user-select: none;
+    }
+    .mob-act:active  { transform: scale(0.88); }
+    .mob-del    { background:var(--key-bg); color:var(--key-txt); box-shadow:0 3px 0 var(--border2); }
+    .mob-submit { flex:1; background:var(--accent); color:#fff; box-shadow:0 3px 0 #5b21b6; font-size:clamp(14px,3.8vw,16px); }
+    .mob-submit.busy { opacity:0.5; cursor:wait; }
+
     /* ── Shared overlay base ── */
     .overlay {
       position:fixed; inset:0; background:rgba(8,8,20,0.72);
@@ -602,7 +628,7 @@
               <ul className="r-list">
                 <li>Only real English words are accepted</li>
                 <li>Won levels stay frozen — you can view but not replay them</li>
-                <li>Any restart (button or reopening the app) counts as a new attempt and bumps your Play # up</li>
+                <li>Any restart (button or reopening the app) counts as a new attempt and bumps your Turn # up</li>
                 <li>When you restart, previously won levels are preserved and pre-filled</li>
                 <li>Finish all 4 levels in a day and the puzzle is locked until tomorrow</li>
               </ul>
@@ -625,7 +651,8 @@
   }
 
   // ── ScratchCard ───────────────────────────────────────────────────────────
-  function ScratchCard({ onClose }) {
+  function ScratchCard({ onClose, playCount }) {
+    const deserved = playCount <= 3;
     const cvRef   = useRef(null);
     const drawing = useRef(false);
     const totalPx = useRef(0);
@@ -670,26 +697,41 @@
       <div className="overlay">
         <div className="overlay-card">
           <div className="sc-card-inner">
-            <div className="sc-icon">🏆</div>
+            <div className="sc-icon">{deserved?'🏆':'😬'}</div>
             <div className="sc-title">All 4 Levels Cleared!</div>
-            <div className="sc-body">You cracked every word today.<br/>Scratch below for your reward.</div>
-            {!done && <div className="sc-hint">← drag to scratch →</div>}
-            <div className="sc-wrap" style={{width:cw,height:ch}}>
-              <div className="sc-back">
-                <div className="sc-reveal-txt">You've managed to<br/>impress Raaghav!</div>
-              </div>
-              {!done && (
-                <canvas ref={cvRef} className="sc-canvas" width={cw} height={ch}
-                  onMouseDown={e=>{drawing.current=true;scratchAt(e);}}
-                  onMouseMove={scratchAt} onMouseUp={()=>{drawing.current=false;}}
-                  onMouseLeave={()=>{drawing.current=false;}}
-                  onTouchStart={e=>{e.preventDefault();drawing.current=true;scratchAt(e);}}
-                  onTouchMove={e=>{e.preventDefault();scratchAt(e);}}
-                  onTouchEnd={()=>{drawing.current=false;}}
-                />
-              )}
-            </div>
-            {done && <div className="sc-done">🎉 You've earned it!</div>}
+            {deserved ? (
+              <>
+                <div className="sc-body">Done in {playCount} turn{playCount>1?'s':''}. Scratch below for your reward.</div>
+                {!done && <div className="sc-hint">← drag to scratch →</div>}
+                <div className="sc-wrap" style={{width:cw,height:ch}}>
+                  <div className="sc-back">
+                    <div className="sc-reveal-txt">You've managed to<br/>impress Raaghav!</div>
+                  </div>
+                  {!done && (
+                    <canvas ref={cvRef} className="sc-canvas" width={cw} height={ch}
+                      onMouseDown={e=>{drawing.current=true;scratchAt(e);}}
+                      onMouseMove={scratchAt} onMouseUp={()=>{drawing.current=false;}}
+                      onMouseLeave={()=>{drawing.current=false;}}
+                      onTouchStart={e=>{e.preventDefault();drawing.current=true;scratchAt(e);}}
+                      onTouchMove={e=>{e.preventDefault();scratchAt(e);}}
+                      onTouchEnd={()=>{drawing.current=false;}}
+                    />
+                  )}
+                </div>
+                {done && <div className="sc-done">🎉 You've earned it!</div>}
+              </>
+            ) : (
+              <>
+                <div className="sc-body">
+                  You finished, but it took you {playCount} turns.<br/>
+                  No reward this time — 3 turns or fewer to unlock it.
+                </div>
+                <div style={{fontSize:'clamp(30px,9vw,44px)',lineHeight:1,margin:'4px 0'}}>🪃</div>
+                <div style={{fontFamily:'Outfit,sans-serif',fontSize:'clamp(11px,2.8vw,13px)',fontWeight:600,color:'var(--muted)',textAlign:'center'}}>
+                  Come back sharper tomorrow.
+                </div>
+              </>
+            )}
             <button className="sc-close" onClick={onClose}>↩ Back to game</button>
           </div>
         </div>
@@ -723,19 +765,28 @@
     const [showScratch, setShowScratch]= useState(false);
     const [showRules,   setShowRules]  = useState(false);
 
-    const gsRef       = useRef(gs);
-    const shownScrRef = useRef(false);
-    const validRef    = useRef(false);
+    const gsRef        = useRef(gs);
+    const shownScrRef  = useRef(false);
+    const validRef     = useRef(false);
+    const mobileInputRef = useRef(null);
+    const handleKeyRef   = useRef(null); // always-current ref to handleKey
+
 
     useEffect(() => { gsRef.current = gs; }, [gs]);
     useEffect(() => { saveGame(gs); }, [gs]);
 
-    // Responsive tile size
-    const [contW, setContW] = useState(() => Math.min(window.innerWidth,500)-32);
+    // Responsive sizing + mobile detection
+    const [viewport, setViewport] = useState(() => ({
+      contW: Math.min(window.innerWidth,500)-32,
+      screenW: window.innerWidth,
+    }));
     useEffect(() => {
-      const h = () => setContW(Math.min(window.innerWidth,500)-32);
+      const h = () => setViewport({ contW:Math.min(window.innerWidth,500)-32, screenW:window.innerWidth });
       window.addEventListener('resize',h); return ()=>window.removeEventListener('resize',h);
     },[]);
+    const { contW, screenW } = viewport;
+    // Mobile = touch device OR narrow viewport (< 500px)
+    const isMobile = navigator.maxTouchPoints > 0 || screenW < 500;
 
     const allWon = isAllWon(gs);
     const lvl    = gs.currentLevel;
@@ -827,10 +878,18 @@
               const status=won?'won':lost?'lost':'active';
               const message=(won||lost)?getMsg(newG.length,won,curTgt):null;
               const upd={...p,levels:{...p.levels,[curLvl]:{...d,guesses:newG,colors:newC,input:'',status,message}}};
-              if(won&&curLvl<4&&upd.levels[curLvl+1].status==='locked')
+              // Unlock next level on both win AND loss
+              if(curLvl<4&&upd.levels[curLvl+1].status==='locked'&&(won||lost))
                 upd.levels[curLvl+1]={...upd.levels[curLvl+1],status:'active'};
               return upd;
             });
+
+            // Auto-advance to next level on loss after a pause (word stays visible)
+            // rowIdx is captured before the async call — reliable, no stale closure
+            const didLose = !willWin && (rowIdx + 1 >= curWl);
+            if(didLose && curLvl < 4){
+              setTimeout(() => setGs(p => ({...p, currentLevel: curLvl + 1})), 2800);
+            }
 
             if(willWin){
               setBouncing({lvl:curLvl,rowIdx});
@@ -852,6 +911,11 @@
       }
     },[busy,isRO,data.input,data.guesses.length,lvl,wl,tgt]);
 
+    // Keep handleKeyRef always pointing to the latest handleKey
+    // (needed by mobile handlers which can't re-bind on every render)
+    useEffect(() => { handleKeyRef.current = handleKey; }, [handleKey]);
+
+    // Desktop physical keyboard listener
     useEffect(()=>{
       const h=(e)=>{
         if(e.ctrlKey||e.altKey||e.metaKey) return;
@@ -862,6 +926,37 @@
       };
       window.addEventListener('keydown',h); return()=>window.removeEventListener('keydown',h);
     },[handleKey]);
+
+    // Mobile keyboard: use beforeinput + preventDefault so the hidden input
+    // never accumulates characters → zero double-typing or runaway input.
+    // All handling is via native addEventListener (not React synthetic events).
+    useEffect(() => {
+      if (!isMobile) return;
+      const input = mobileInputRef.current;
+      if (!input) return;
+      const onBeforeInput = (e) => {
+        e.preventDefault();
+        const char = e.data?.[0]?.toUpperCase();
+        if (char && /^[A-Z]$/.test(char)) handleKeyRef.current?.(char);
+      };
+      const onKeyDown = (e) => {
+        if (e.key === 'Enter')     { e.preventDefault(); handleKeyRef.current?.('ENTER'); }
+        if (e.key === 'Backspace') { e.preventDefault(); handleKeyRef.current?.('BACK');  }
+      };
+      input.addEventListener('beforeinput', onBeforeInput);
+      input.addEventListener('keydown',     onKeyDown);
+      return () => {
+        input.removeEventListener('beforeinput', onBeforeInput);
+        input.removeEventListener('keydown',     onKeyDown);
+      };
+    }, [isMobile]);
+
+    // Auto-focus hidden input when active level changes on mobile → native keyboard appears
+    useEffect(() => {
+      if (!isMobile || isRO || allWon) return;
+      const t = setTimeout(() => mobileInputRef.current?.focus(), 200);
+      return () => clearTimeout(t);
+    }, [isMobile, lvl, isRO, allWon]);
 
     // ── Board ────────────────────────────────────────────────────────────────
     const renderBoard=()=>{
@@ -922,7 +1017,7 @@
         {/* ── Header ── */}
         <div className="header">
           <div className="h-left">
-            <div className="play-badge">Play #{gs.playCount}</div>
+            <div className="play-badge">Turn #{gs.playCount}</div>
           </div>
           <div className="h-mid">
             <div className="logo-name">Word<em>Climb</em></div>
@@ -1008,15 +1103,45 @@
         )}
 
         {/* ── Board ── */}
-        <div className="board">{renderBoard()}</div>
+        <div className="board" onClick={()=>{ if(isMobile&&!isRO&&!allWon) mobileInputRef.current?.focus(); }}>{renderBoard()}</div>
 
-        {/* ── Next Level ── */}
-        {data.status==='won'&&lvl<4&&!allWon&&gs.levels[lvl+1]?.status!=='locked'&&(
-          <button className="next-btn" onClick={()=>setLevel(lvl+1)}>Level {lvl+1} →</button>
+        {/* ── Next Level / Continue button — shows on both win and loss ── */}
+        {(data.status==='won'||data.status==='lost')&&lvl<4&&!allWon&&gs.levels[lvl+1]?.status!=='locked'&&(
+          <button className="next-btn" onClick={()=>setLevel(lvl+1)}>
+            {data.status==='lost'?`Continue to Level ${lvl+1} →`:`Level ${lvl+1} →`}
+          </button>
         )}
 
-        {/* ── Keyboard ── */}
-        {!isRO&&!allWon&&(
+        {/* ── Input area: native keyboard on mobile, QWERTY on desktop ── */}
+        {!isRO&&!allWon&&(isMobile ? (
+          <>
+            {/* Hidden input — offscreen, captures native keyboard events */}
+            <input
+              ref={mobileInputRef}
+              className="mob-input"
+              type="text"
+              inputMode="text"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              autoComplete="new-password"
+              spellCheck="false"
+              enterKeyHint="done"
+              defaultValue=""
+              suppressHydrationWarning
+            />
+            {/* Two-button strip: Delete + Submit */}
+            <div className="mob-ctrls">
+              <button className="mob-act mob-del"
+                onPointerDown={e=>{e.preventDefault(); mobileInputRef.current?.focus(); handleKeyRef.current?.('BACK');}}>
+                ⌫
+              </button>
+              <button className={`mob-act mob-submit${validating?' busy':''}`}
+                onPointerDown={e=>{e.preventDefault(); handleKeyRef.current?.('ENTER');}}>
+                {validating ? '…' : '↵  Submit'}
+              </button>
+            </div>
+          </>
+        ) : (
           <div className="keyboard">
             {KB_ROWS.map((row,ri)=>(
               <div key={ri} className="key-row">
@@ -1034,11 +1159,11 @@
               </div>
             ))}
           </div>
-        )}
+        ))}
 
         {/* ── Modals ── */}
         {showRules   && <RulesModal   onClose={()=>setShowRules(false)}/>}
-        {showScratch && <ScratchCard  onClose={()=>setShowScratch(false)}/>}
+        {showScratch && <ScratchCard playCount={gs.playCount} onClose={()=>setShowScratch(false)}/>}
       </div>
     );
   }
