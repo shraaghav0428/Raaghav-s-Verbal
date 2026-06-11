@@ -796,11 +796,15 @@
     const res = await fetch('https://ai-backend-hazel-ten.vercel.app/api/word-hint', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({
+        targetWord: word,
+        currentWord: guesses[guesses.length - 1] || '',
+        attempts: guesses.length
+      })
     });
     if (!res.ok) throw new Error('Server error ' + res.status);
     const data = await res.json();
-    return (data.hint || data.text || data.result || '').trim() || 'No hint available.';
+    return (data.hint || '').trim() || 'Keep going, you are close!';
   };
 
   // ── Tile ──────────────────────────────────────────────────────────────────
