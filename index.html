@@ -770,47 +770,20 @@
   }
 
 
-  // ── AI hint helper — lives outside App to avoid closure issues ──────────
-  // Calls the Vercel backend which holds the API key server-side.
-  const getHintFromAI = async (word, wordLen, guesses, colors, hintNum) => {
-    const knownCorrect = Array(wordLen).fill('_');
-    const present = new Set();
-    const absent  = new Set();
-    guesses.forEach((g, ri) => {
-      g.split('').forEach((l, ci) => {
-        const col = colors[ri][ci];
-        if (col === 'correct') knownCorrect[ci] = l;
-        else if (col === 'present') present.add(l);
-        else if (col === 'absent')  absent.add(l);
-      });
-    });
-    const style = hintNum === 1
-      ? 'Give a general clue about what this word means or how it is used. Be helpful but not too obvious.'
-      : 'Give a more specific clue. You may mention the first letter, a synonym, or give a direct definition.';
-    const prompt =
-      'WordClimb hint. Word: ' + word + '. Length: ' + wordLen + ' letters. ' + style +
-      ' Confirmed positions: ' + knownCorrect.join('') +
-      '. Letters in word (wrong position): ' + ([...present].join('') || 'none') +
-      '. Letters not in word: ' + ([...absent].join('') || 'none') +
-      '. IMPORTANT: Do NOT reveal the word. Keep it to 1-2 sentences, max 30 words. Reply with only the hint text.';
-    const payload = {
-      targetWord: word,
-      currentWord: guesses[guesses.length - 1] || '',
-      attempts: guesses.length
-    };
-    console.log('AI Assist request:', payload);
+  // ── AI hint — calls Vercel backend (API key is server-side) ────────────
+  const getHintFromAI = async (word, guesses) => {
     const res = await fetch('https://ai-backend-hazel-ten.vercel.app/api/word-hint', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        targetWord: word,
+        currentWord: guesses[guesses.length - 1] || '',
+        attempts: guesses.length
+      })
     });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      console.error('AI Assist response error:', res.status, errBody);
-      throw new Error(errBody.error || 'Server error ' + res.status);
-    }
-    const data = await res.json();
-    return (data.hint || '').trim() || 'Keep going, you are close!';
+    if (!res.ok) throw new Error('Request failed');
+    const json = await res.json();
+    return (json.hint || '').trim() || 'Keep going!';
   };
 
   // ── Tile ──────────────────────────────────────────────────────────────────
@@ -909,7 +882,7 @@
       if (hintsUsed >= 2 || hintLoading) return;
       setHintLoading(true);
       try {
-        const hint = await getHintFromAI(tgt, wl, data.guesses, data.colors, hintsUsed + 1);
+        const hint = await getHintFromAI(tgt, data.guesses);
         setGs(p => ({
           ...p,
           levels: { ...p.levels, [lvl]: {
@@ -919,8 +892,7 @@
           }}
         }));
       } catch(e) {
-        console.error('AI Assist error:', e);
-        pushToast('AI error: ' + e.message, 'error', 4000);
+        pushToast('AI unavailable — try again shortly', 'error', 3000);
       } finally {
         setHintLoading(false);
       }
@@ -1230,3 +1202,14 @@
             ))}
           </div>
         )}
+
+        {/* ── Modals ── */}
+        {showRules   && <RulesModal   onClose={()=>setShowRules(false)}/>}
+        {showScratch && <ScratchCard playCount={gs.playCount} onClose={()=>setShowScratch(false)}/>}
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
