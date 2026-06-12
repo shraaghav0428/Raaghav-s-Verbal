@@ -793,16 +793,22 @@
       '. Letters in word (wrong position): ' + ([...present].join('') || 'none') +
       '. Letters not in word: ' + ([...absent].join('') || 'none') +
       '. IMPORTANT: Do NOT reveal the word. Keep it to 1-2 sentences, max 30 words. Reply with only the hint text.';
+    const payload = {
+      targetWord: word,
+      currentWord: guesses[guesses.length - 1] || '',
+      attempts: guesses.length
+    };
+    console.log('AI Assist request:', payload);
     const res = await fetch('https://ai-backend-hazel-ten.vercel.app/api/word-hint', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        targetWord: word,
-        currentWord: guesses[guesses.length - 1] || '',
-        attempts: guesses.length
-      })
+      body: JSON.stringify(payload)
     });
-    if (!res.ok) throw new Error('Server error ' + res.status);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      console.error('AI Assist response error:', res.status, errBody);
+      throw new Error(errBody.error || 'Server error ' + res.status);
+    }
     const data = await res.json();
     return (data.hint || '').trim() || 'Keep going, you are close!';
   };
@@ -913,7 +919,8 @@
           }}
         }));
       } catch(e) {
-        pushToast('AI unavailable — try again shortly', 'error', 3000);
+        console.error('AI Assist error:', e);
+        pushToast('AI error: ' + e.message, 'error', 4000);
       } finally {
         setHintLoading(false);
       }
@@ -1223,14 +1230,3 @@
             ))}
           </div>
         )}
-
-        {/* ── Modals ── */}
-        {showRules   && <RulesModal   onClose={()=>setShowRules(false)}/>}
-        {showScratch && <ScratchCard playCount={gs.playCount} onClose={()=>setShowScratch(false)}/>}
-      </div>
-    );
-  }
-
-  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-</script>
-</body>
