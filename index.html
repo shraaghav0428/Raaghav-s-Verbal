@@ -377,6 +377,28 @@
     }
     .sc-close:hover { background:#5b21b6; }
 
+    /* ── AI Assist ── */
+    .ai-assist-wrap {
+      width:100%; margin-bottom:10px;
+      display:flex; flex-direction:column; align-items:center; gap:8px;
+    }
+    .ai-btn {
+      display:flex; align-items:center; gap:6px;
+      padding:9px 20px; border-radius:12px;
+      background:linear-gradient(135deg,#7c3aed,#6d28d9);
+      color:#fff; border:none; cursor:pointer;
+      font-family:'Outfit',sans-serif; font-size:clamp(12px,3vw,14px); font-weight:700;
+      box-shadow:0 3px 12px rgba(109,40,217,0.3); transition:opacity 0.15s;
+    }
+    .ai-btn:hover { opacity:0.88; }
+    .ai-btn:disabled { opacity:0.5; cursor:not-allowed; }
+    .ai-hint-box {
+      width:100%; padding:10px 14px; border-radius:10px;
+      background:var(--accent-lt); border:1px solid rgba(109,40,217,0.22);
+      font-family:'Manrope',sans-serif; font-size:clamp(11px,2.8vw,13px);
+      color:var(--text); line-height:1.55; text-align:center;
+    }
+
     @media (max-width:360px) {
       .app { padding:0 10px 20px; }
       .tile-row { gap:4px; }
@@ -744,6 +766,8 @@
     const [validating,  setValidating] = useState(false);
     const [showScratch, setShowScratch]= useState(false);
     const [showRules,   setShowRules]  = useState(false);
+    const [hintLoading, setHintLoading]= useState(false);
+    const [hint,        setHint]       = useState(null);
 
     const gsRef        = useRef(gs);
     const shownScrRef  = useRef(false);
@@ -778,6 +802,7 @@
     const setLevel = (l) => {
       if (gs.levels[l].status==='locked'||inflight) return;
       setGs(p=>({...p,currentLevel:l}));
+      setHint(null);
     };
     const goActive = () => {
       for(let l=1;l<=4;l++) if(gs.levels[l].status==='active'){setLevel(l);return;}
@@ -788,12 +813,30 @@
 
     // Restart: smart — keeps won levels, resets from first non-won, bumps play count
     // Blocked if all levels are won (puzzle complete for today)
+    const handleAiAssist = async () => {
+      setHintLoading(true); setHint(null);
+      try {
+        const res = await fetch('https://ai-backend-hazel-ten.vercel.app/api/word-hint', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetWord: tgt, guesses: data.guesses, colors: data.colors }),
+        });
+        const json = await res.json();
+        if (json.hint) setHint(json.hint);
+        else setHint('No hint available right now. Try again shortly.');
+      } catch {
+        setHint('Could not reach AI. Check your connection.');
+      }
+      setHintLoading(false);
+    };
+
     const handleRestart = () => {
       if (allDone) return;
       shownScrRef.current=false; validRef.current=false;
       setGs(buildRestartState(gsRef.current));
       setInflight(null); setBouncing(null); setShaking(false);
       setToast(null); setValidating(false); setShowScratch(false);
+      setHint(null);
     };
 
     const keyState = (letter) => {
@@ -1065,6 +1108,16 @@
           <button className="next-btn" onClick={()=>setLevel(lvl+1)}>
             {data.status==='lost'?`Continue to Level ${lvl+1} →`:`Level ${lvl+1} →`}
           </button>
+        )}
+
+        {/* ── AI Assist ── */}
+        {!isRO&&!allDone&&(
+          <div className="ai-assist-wrap">
+            <button className="ai-btn" onClick={handleAiAssist} disabled={hintLoading}>
+              {hintLoading ? '✨ Thinking…' : '✨ AI Assist'}
+            </button>
+            {hint && <div className="ai-hint-box">{hint}</div>}
+          </div>
         )}
 
         {/* ── Keyboard — shown on all devices ── */}
