@@ -1111,7 +1111,7 @@
         )}
 
         {/* ── AI Assist ── */}
-        {!isRO&&!allDone&&(
+        {!isRO&&!allDone&&data.guesses.length>=2&&(
           <div className="ai-assist-wrap">
             <button className="ai-btn" onClick={handleAiAssist} disabled={hintLoading}>
               {hintLoading ? '✨ Thinking…' : '✨ AI Assist'}
