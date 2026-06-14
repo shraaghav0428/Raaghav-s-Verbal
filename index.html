@@ -379,55 +379,7 @@
     .sc-close:hover { background:#5b21b6; }
 
 
-    /* ── AI Assist ── */
-    .ai-assist-wrap {
-      width:100%; display:flex; flex-direction:column;
-      align-items:center; gap:10px; margin-bottom:12px;
-    }
-    .ai-btn {
-      display:flex; align-items:center; gap:8px;
-      padding:9px 20px;
-      background:linear-gradient(135deg,#6d28d9,#a855f7);
-      color:#fff; border:none; border-radius:22px;
-      font-family:'Outfit',sans-serif;
-      font-size:clamp(12px,3vw,13px); font-weight:700;
-      cursor:pointer; transition:all 0.18s;
-      box-shadow:0 3px 14px rgba(109,40,217,0.3);
-      -webkit-tap-highlight-color:transparent;
-    }
-    .ai-btn:hover { transform:translateY(-1px); box-shadow:0 5px 18px rgba(109,40,217,0.4); }
-    .ai-btn:disabled { opacity:0.65; cursor:wait; transform:none; }
-    .ai-badge {
-      font-size:10px; font-weight:700;
-      background:rgba(255,255,255,0.22);
-      padding:2px 7px; border-radius:10px;
-    }
-    .hint-card {
-      width:100%; position:relative;
-      background:linear-gradient(135deg,#f5f3ff,#ede9fe);
-      border:1.5px solid rgba(109,40,217,0.22);
-      border-radius:14px; padding:13px 38px 13px 16px;
-    }
-    .hint-lbl {
-      font-family:'Outfit',sans-serif; font-weight:700;
-      font-size:10px; color:var(--accent);
-      text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;
-    }
-    .hint-txt {
-      font-family:'Manrope',sans-serif;
-      font-size:clamp(12px,3vw,13px); color:#3b1f7a; line-height:1.55;
-    }
-    .hint-x {
-      position:absolute; top:10px; right:10px;
-      width:22px; height:22px; border-radius:50%;
-      background:rgba(109,40,217,0.12); border:none;
-      color:var(--accent); font-size:11px; cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-      transition:background 0.15s;
-    }
-    .hint-x:hover { background:rgba(109,40,217,0.25); }
-
-    @media (max-width:360px) {
+        @media (max-width:360px) {
       .app { padding:0 10px 20px; }
       .tile-row { gap:4px; }
       .board { gap:4px; }
@@ -522,7 +474,7 @@
   };
 
   // ── State builders ────────────────────────────────────────────────────────
-  const blankLvl  = (s='active') => ({ guesses:[], colors:[], input:'', status:s, message:null, hintsUsed:0, currentHint:null });
+  const blankLvl  = (s='active') => ({ guesses:[], colors:[], input:'', status:s, message:null });
   const freshGame  = (n=1) => ({
     playCount:n, currentLevel:1,
     levels:{ 1:blankLvl('active'), 2:blankLvl('locked'), 3:blankLvl('locked'), 4:blankLvl('locked') }
@@ -536,42 +488,30 @@
   });
 
   /**
-   * buildRestartState — smart restart that preserves won levels.
+   * buildRestartState — only resets the current active level.
    *
    * Rules:
-   *   Won levels → kept as-is (frozen, read-only)
-   *   First non-won level → reset to fresh active
-   *   All subsequent levels → locked
+   *   Won levels  → permanently locked, kept as-is
+   *   Lost levels → permanently locked, kept as-is
+   *   Active level (current) → reset to fresh
+   *   Locked levels → stay locked
    *   Play count → +1
-   *   currentLevel → first active level
-   *
-   * This handles all cases:
-   *   - Mid-level restart (3 attempts used, no loss yet)
-   *   - After losing a level
-   *   - After losing level 3 with levels 1 & 2 already won
    */
   const buildRestartState = (prev) => {
     const newLevels = {};
-    let firstActiveSet = false;
-
     for (let l = 1; l <= 4; l++) {
-      if (prev.levels?.[l]?.status === 'won') {
-        // Keep won levels exactly as they were (with all guesses history)
-        newLevels[l] = prev.levels[l];
-      } else if (!firstActiveSet) {
-        // First non-won level → fresh start
-        newLevels[l] = blankLvl('active');
-        firstActiveSet = true;
+      const s = prev.levels?.[l]?.status;
+      if (s === 'won' || s === 'lost') {
+        newLevels[l] = prev.levels[l]; // permanently locked
+      } else if (s === 'active') {
+        newLevels[l] = blankLvl('active'); // reset only this level
       } else {
-        // Everything after → locked
-        newLevels[l] = blankLvl('locked');
+        newLevels[l] = prev.levels[l] || blankLvl('locked');
       }
     }
-
-    const firstActive = LEVELS.find(l => newLevels[l]?.status === 'active') || 1;
     return {
       playCount:    (prev.playCount || 1) + 1,
-      currentLevel: firstActive,
+      currentLevel: prev.currentLevel,
       levels:       newLevels,
     };
   };
@@ -770,23 +710,7 @@
   }
 
 
-  // ── AI hint — calls Vercel backend (API key is server-side) ────────────
-  const getHintFromAI = async (word, guesses) => {
-    const res = await fetch('https://ai-backend-hazel-ten.vercel.app/api/word-hint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        targetWord: word,
-        currentWord: guesses[guesses.length - 1] || '',
-        attempts: guesses.length
-      })
-    });
-    if (!res.ok) throw new Error('Request failed');
-    const json = await res.json();
-    return (json.hint || '').trim() || 'Keep going!';
-  };
-
-  // ── Tile ──────────────────────────────────────────────────────────────────
+    // ── Tile ──────────────────────────────────────────────────────────────────
   function Tile({ letter, color, ts, cls='', style={}, isCur }) {
     const filled = (letter&&!color)?'filled':'';
     const cur    = (isCur&&!color) ?'cur'   :'';
@@ -811,7 +735,6 @@
     const [validating,  setValidating] = useState(false);
     const [showScratch, setShowScratch]= useState(false);
     const [showRules,   setShowRules]  = useState(false);
-    const [hintLoading, setHintLoading]= useState(false);
 
     const gsRef        = useRef(gs);
     const shownScrRef  = useRef(false);
@@ -877,30 +800,6 @@
     };
 
 
-    const handleAiAssist = async () => {
-      const hintsUsed = data.hintsUsed || 0;
-      if (hintsUsed >= 2 || hintLoading) return;
-      setHintLoading(true);
-      try {
-        const hint = await getHintFromAI(tgt, data.guesses);
-        setGs(p => ({
-          ...p,
-          levels: { ...p.levels, [lvl]: {
-            ...p.levels[lvl],
-            hintsUsed: (p.levels[lvl].hintsUsed || 0) + 1,
-            currentHint: hint
-          }}
-        }));
-      } catch(e) {
-        pushToast('AI unavailable — try again shortly', 'error', 3000);
-      } finally {
-        setHintLoading(false);
-      }
-    };
-
-    const dismissHint = () => {
-      setGs(p => ({ ...p, levels: { ...p.levels, [lvl]: { ...p.levels[lvl], currentHint: null } } }));
-    };
 
     // ── Key handler ─────────────────────────────────────────────────────────
     const handleKey = useCallback((key) => {
@@ -1161,28 +1060,7 @@
           </button>
         )}
 
-        {/* ── AI Assist ── */}
-        {data.status==='active' && !allDone && data.guesses.length >= 2 && (data.hintsUsed||0) < 2 && (
-          <div className="ai-assist-wrap">
-            {data.currentHint && (
-              <div className="hint-card">
-                <div className="hint-lbl">✨ AI Assist</div>
-                <div className="hint-txt">{data.currentHint}</div>
-                <button className="hint-x" onClick={dismissHint}>✕</button>
-              </div>
-            )}
-            <button className="ai-btn" onClick={handleAiAssist} disabled={hintLoading}>
-              {hintLoading ? '✨ Getting hint...' : (
-                <>
-                  <span>✨ AI Assist</span>
-                  <span className="ai-badge">{2-(data.hintsUsed||0)} left</span>
-                </>
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* ── Keyboard — shown on all devices ── */}
+                {/* ── Keyboard — shown on all devices ── */}
         {!isRO&&!allDone&&(
           <div className="keyboard">
             {KB_ROWS.map((row,ri)=>(
