@@ -281,7 +281,6 @@
     .key.busy    { opacity:0.5; cursor:wait; }
 
 
-
     /* ── Shared overlay base ── */
     .overlay {
       position:fixed; inset:0; background:rgba(8,8,20,0.72);
@@ -378,8 +377,7 @@
     }
     .sc-close:hover { background:#5b21b6; }
 
-
-        @media (max-width:360px) {
+    @media (max-width:360px) {
       .app { padding:0 10px 20px; }
       .tile-row { gap:4px; }
       .board { gap:4px; }
@@ -488,30 +486,42 @@
   });
 
   /**
-   * buildRestartState — only resets the current active level.
+   * buildRestartState — smart restart that preserves won levels.
    *
    * Rules:
-   *   Won levels  → permanently locked, kept as-is
-   *   Lost levels → permanently locked, kept as-is
-   *   Active level (current) → reset to fresh
-   *   Locked levels → stay locked
+   *   Won levels → kept as-is (frozen, read-only)
+   *   First non-won level → reset to fresh active
+   *   All subsequent levels → locked
    *   Play count → +1
+   *   currentLevel → first active level
+   *
+   * This handles all cases:
+   *   - Mid-level restart (3 attempts used, no loss yet)
+   *   - After losing a level
+   *   - After losing level 3 with levels 1 & 2 already won
    */
   const buildRestartState = (prev) => {
     const newLevels = {};
+    let firstActiveSet = false;
+
     for (let l = 1; l <= 4; l++) {
-      const s = prev.levels?.[l]?.status;
-      if (s === 'won' || s === 'lost') {
-        newLevels[l] = prev.levels[l]; // permanently locked
-      } else if (s === 'active') {
-        newLevels[l] = blankLvl('active'); // reset only this level
+      if (prev.levels?.[l]?.status === 'won') {
+        // Keep won levels exactly as they were (with all guesses history)
+        newLevels[l] = prev.levels[l];
+      } else if (!firstActiveSet) {
+        // First non-won level → fresh start
+        newLevels[l] = blankLvl('active');
+        firstActiveSet = true;
       } else {
-        newLevels[l] = prev.levels[l] || blankLvl('locked');
+        // Everything after → locked
+        newLevels[l] = blankLvl('locked');
       }
     }
+
+    const firstActive = LEVELS.find(l => newLevels[l]?.status === 'active') || 1;
     return {
       playCount:    (prev.playCount || 1) + 1,
-      currentLevel: prev.currentLevel,
+      currentLevel: firstActive,
       levels:       newLevels,
     };
   };
@@ -709,8 +719,7 @@
     );
   }
 
-
-    // ── Tile ──────────────────────────────────────────────────────────────────
+  // ── Tile ──────────────────────────────────────────────────────────────────
   function Tile({ letter, color, ts, cls='', style={}, isCur }) {
     const filled = (letter&&!color)?'filled':'';
     const cur    = (isCur&&!color) ?'cur'   :'';
@@ -798,8 +807,6 @@
       }));
       return best;
     };
-
-
 
     // ── Key handler ─────────────────────────────────────────────────────────
     const handleKey = useCallback((key) => {
@@ -1060,7 +1067,7 @@
           </button>
         )}
 
-                {/* ── Keyboard — shown on all devices ── */}
+        {/* ── Keyboard — shown on all devices ── */}
         {!isRO&&!allDone&&(
           <div className="keyboard">
             {KB_ROWS.map((row,ri)=>(
@@ -1091,3 +1098,4 @@
   ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
+</html>
