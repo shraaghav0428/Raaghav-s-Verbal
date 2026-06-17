@@ -524,18 +524,16 @@
    */
   const buildRestartState = (prev) => {
     const newLevels = {};
-    let firstActiveSet = false;
 
     for (let l = 1; l <= 4; l++) {
-      if (prev.levels?.[l]?.status === 'won') {
-        // Keep won levels exactly as they were (with all guesses history)
+      const s = prev.levels?.[l]?.status;
+      if (s === 'won' || s === 'lost') {
+        // Keep completed levels as-is so the player can still see them
         newLevels[l] = prev.levels[l];
-      } else if (!firstActiveSet) {
-        // First non-won level → fresh start
+      } else if (s === 'active') {
+        // Reset active level to a fresh start
         newLevels[l] = blankLvl('active');
-        firstActiveSet = true;
       } else {
-        // Everything after → locked
         newLevels[l] = blankLvl('locked');
       }
     }
@@ -831,11 +829,15 @@
     };
 
     const handleRestart = () => {
-      if (allDone) return;
-      shownScrRef.current=false; validRef.current=false;
-      setGs(buildRestartState(gsRef.current));
+      if (lvlDone || allDone) return;
+      validRef.current=false;
+      setGs(p => ({
+        ...p,
+        playCount: (p.playCount || 1) + 1,
+        levels: { ...p.levels, [lvl]: blankLvl('active') }
+      }));
       setInflight(null); setBouncing(null); setShaking(false);
-      setToast(null); setValidating(false); setShowScratch(false);
+      setToast(null); setValidating(false);
       setHint(null);
     };
 
@@ -866,6 +868,10 @@
         if (inp.length!==wl) {
           setShaking(true); setTimeout(()=>setShaking(false),420);
           pushToast(`Type all ${wl} letters first`,'error',1400); return;
+        }
+        if (data.guesses.includes(inp)) {
+          setShaking(true); setTimeout(()=>setShaking(false),420);
+          pushToast('Already guessed!','error',1400); return;
         }
         const curLvl=lvl,curWl=wl,curTgt=tgt,guess=inp,rowIdx=data.guesses.length;
         validRef.current=true; setValidating(true);
@@ -1019,7 +1025,7 @@
           </div>
           <div className="h-right">
             <button className="icon-btn" title="How to play" onClick={()=>setShowRules(true)}>?</button>
-            {!allDone && (
+            {!lvlDone && !allDone && (
               <button className="restart-btn" onClick={handleRestart}>↺ Restart</button>
             )}
           </div>
