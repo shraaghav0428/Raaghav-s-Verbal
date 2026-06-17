@@ -824,7 +824,7 @@
         const json = await res.json();
         if (json.hint) setHint(json.hint);
         else setHint('No hint available right now. Try again shortly.');
-      } catch {
+      } catch(e) {
         setHint('Could not reach AI. Check your connection.');
       }
       setHintLoading(false);
